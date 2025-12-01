@@ -7,8 +7,9 @@ This enables two authentication flows:
 2. API Keys - For automated agents and developers
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional
 from fastmcp.server.auth.providers.jwt import JWTVerifier
+from mcp.server.auth.provider import AccessToken
 from .auth import is_api_key, validate_api_key
 
 
@@ -32,7 +33,7 @@ class DualTokenVerifier:
         """
         self.jwt_verifier = jwt_verifier
     
-    async def verify(self, token: str) -> Dict[str, Any]:
+    async def verify_token(self, token: str) -> Optional[AccessToken]:
         """
         Verify a token (either JWT or API key).
         
@@ -40,7 +41,7 @@ class DualTokenVerifier:
             token: Bearer token from Authorization header
         
         Returns:
-            Dictionary with verified token claims/info
+            AccessToken object with verified token info
             
         Raises:
             Exception: If token verification fails
@@ -50,9 +51,9 @@ class DualTokenVerifier:
             return await self._verify_api_key(token)
         
         # Otherwise, treat as OAuth JWT token
-        return await self.jwt_verifier.verify(token)
+        return await self.jwt_verifier.verify_token(token)
     
-    async def _verify_api_key(self, token: str) -> Dict[str, Any]:
+    async def _verify_api_key(self, token: str) -> AccessToken:
         """
         Verify API key format (actual validation happens in GDELT Cloud API).
         
@@ -64,7 +65,7 @@ class DualTokenVerifier:
             token: API key to verify
         
         Returns:
-            Dictionary with API key info
+            AccessToken object with API key info
             
         Raises:
             ValueError: If API key format is invalid
@@ -72,15 +73,15 @@ class DualTokenVerifier:
         if not validate_api_key(token):
             raise ValueError(f"Invalid API key format. Must be 'gdelt_sk_' + 64 hex chars")
         
-        # Return minimal claims for API keys
+        # Return AccessToken object for API keys
         # The actual user_id and permissions will be validated by GDELT Cloud API
-        return {
-            "sub": "api_key_user",  # Placeholder subject
-            "auth_type": "api_key",
-            "token": token,
-            "iss": "gdelt-cloud-api",
-            "aud": "mcp-server"
-        }
+        return AccessToken(
+            token=token,
+            client_id="api_key_client",  # Placeholder client ID for API keys
+            scopes=["read", "write"],    # Default scopes for API keys
+            expires_at=None,              # API keys don't expire (managed via revocation)
+            resource=None
+        )
     
     @property
     def jwks_uri(self) -> str:

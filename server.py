@@ -501,11 +501,23 @@ async def query_gdelt_events(
     
     Returns events with actor information, event classification, and impact metrics.
     """
+    print("\n" + "="*80)
+    print("QUERY_GDELT_EVENTS CALLED")
+    print("="*80)
+    print(f"where_clause: {where_clause}")
+    print(f"select_fields: {select_fields}")
+    print(f"limit: {limit}")
+    print(f"order_by: {order_by}")
+    
     try:
         auth_context = AuthContext()
+        print(f"Getting auth token...")
         token = auth_context.require_auth()
+        print(f"Token obtained: {token[:20]}..." if token else "No token")
         
+        print(f"Creating API client...")
         async with await get_api_client(token) as client:
+            print(f"Executing query...")
             result = await client.query_events(
                 where_clause=where_clause,
                 select_fields=select_fields,
@@ -513,15 +525,22 @@ async def query_gdelt_events(
                 order_by=order_by
             )
             
+            print(f"Query result - Error: {result.error}, Count: {result.count}")
+            
             if result.error:
+                print(f"Returning error: {result.error}")
                 return {"error": result.error}
             
+            print(f"Returning {result.count} results")
             return {
                 "data": result.data,
                 "count": result.count,
                 "execution_time": result.execution_time
             }
     except Exception as e:
+        print(f"Exception in query_gdelt_events: {e}")
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
 
 

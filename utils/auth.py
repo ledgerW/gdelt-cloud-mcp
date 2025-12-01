@@ -8,22 +8,49 @@ This module provides token validation and context management for API calls.
 
 import os
 from typing import Optional
+from fastmcp.server.dependencies import get_http_headers
 
 
 def get_auth_token() -> Optional[str]:
     """
-    Get authentication token from environment.
+    Get authentication token with priority:
+    1. HTTP Authorization header (Bearer token)
+    2. Environment variables (for development/testing)
     
     For development/testing, set one of:
     - GDELT_API_KEY: API key (gdelt_sk_*)
     - GDELT_OAUTH_TOKEN: OAuth access token
     
-    In production, authentication is handled by FastMCP server automatically.
+    In production, authentication comes from Authorization header.
     
     Returns:
         Authentication token (OAuth or API key) or None
     """
-    return os.getenv('GDELT_API_KEY') or os.getenv('GDELT_OAUTH_TOKEN')
+    print("\n=== GET_AUTH_TOKEN CALLED ===")
+    
+    # First, try to get token from HTTP headers
+    try:
+        headers = get_http_headers()
+        print(f"Headers retrieved: {dict(headers)}")
+        auth_header = headers.get("authorization", "")
+        print(f"Authorization header: {auth_header[:50] if auth_header else 'None'}...")
+        
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            print(f"Token extracted from header: {token[:20]}..." if token else "No token")
+            if token:
+                return token
+    except Exception as e:
+        # If get_http_headers() fails (e.g., not in request context), 
+        # fall through to environment variables
+        print(f"Exception getting headers: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Fall back to environment variables for development/testing
+    env_token = os.getenv('GDELT_API_KEY') or os.getenv('GDELT_OAUTH_TOKEN')
+    print(f"Env token: {env_token[:20] if env_token else 'None'}...")
+    return env_token
 
 
 def validate_api_key(token: str) -> bool:
