@@ -7,8 +7,6 @@ from .auth import (
     get_auth_token,
     validate_api_key,
     is_api_key,
-    create_oauth_provider,
-    create_bearer_auth,
     AuthContext,
 )
 
@@ -21,7 +19,5 @@ __all__ = [
     'get_auth_token',
     'validate_api_key',
     'is_api_key',
-    'create_oauth_provider',
-    'create_bearer_auth',
     'AuthContext',
 ]

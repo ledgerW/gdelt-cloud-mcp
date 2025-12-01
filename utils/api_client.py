@@ -61,23 +61,26 @@ class GDELTCloudAPIClient:
     async def execute_query(
         self,
         query: str,
-        format: str = 'JSONEachRow'
+        source: str = 'mcp'
     ) -> QueryResult:
         """
-        Execute a ClickHouse SQL query.
+        Execute a ClickHouse SQL query via GDELT Cloud query execution API.
         
         Args:
             query: SQL query string (SELECT only)
-            format: ClickHouse format (default: JSONEachRow)
+            source: Source identifier ('mcp', 'api', or 'app')
         
         Returns:
             QueryResult with data and metadata
         """
         try:
             response = await self.client.post(
-                f'{self.base_url}/api/clickhouse/query',
+                f'{self.base_url}/api/query/execute',
                 headers=self._get_headers(),
-                json={'query': query, 'format': format}
+                json={
+                    'query': query,
+                    'source': source
+                }
             )
             
             if response.status_code == 401:
@@ -85,6 +88,14 @@ class GDELTCloudAPIClient:
                     data=[],
                     count=0,
                     error='Authentication required. Please provide valid OAuth token or API key.'
+                )
+            
+            if response.status_code == 400:
+                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                return QueryResult(
+                    data=[],
+                    count=0,
+                    error=error_data.get('error', 'Invalid query. Check syntax and ensure date filters are included.')
                 )
             
             if response.status_code != 200:
@@ -96,11 +107,20 @@ class GDELTCloudAPIClient:
                 )
             
             result = response.json()
-            return QueryResult(
-                data=result.get('data', []),
-                count=result.get('count', 0),
-                execution_time=result.get('executionTime')
-            )
+            
+            # Handle response format
+            if result.get('success'):
+                return QueryResult(
+                    data=result.get('data', []),
+                    count=result.get('rowCount', len(result.get('data', []))),
+                    execution_time=result.get('executionTime')
+                )
+            else:
+                return QueryResult(
+                    data=[],
+                    count=0,
+                    error=result.get('error', 'Query execution failed')
+                )
             
         except httpx.TimeoutException:
             return QueryResult(

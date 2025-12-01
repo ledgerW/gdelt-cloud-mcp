@@ -1,23 +1,29 @@
 """
 Authentication utilities for GDELT Cloud MCP Server
 Supports both OAuth 2.1 and API key authentication
+
+Note: Server-side OAuth is configured via FastMCP CLI/config, not programmatically.
+This module provides token validation and context management for API calls.
 """
 
 import os
 from typing import Optional
-from fastmcp.server.auth import BearerAuth, RemoteOAuthProvider
 
 
 def get_auth_token() -> Optional[str]:
     """
-    Get authentication token from environment or context.
+    Get authentication token from environment.
+    
+    For development/testing, set one of:
+    - GDELT_API_KEY: API key (gdelt_sk_*)
+    - GDELT_OAUTH_TOKEN: OAuth access token
+    
+    In production, authentication is handled by FastMCP server automatically.
     
     Returns:
         Authentication token (OAuth or API key) or None
     """
-    # Try environment variable first (for development/testing)
-    token = os.getenv('GDELT_API_KEY') or os.getenv('GDELT_OAUTH_TOKEN')
-    return token
+    return os.getenv('GDELT_API_KEY') or os.getenv('GDELT_OAUTH_TOKEN')
 
 
 def validate_api_key(token: str) -> bool:
@@ -62,54 +68,6 @@ def is_api_key(token: str) -> bool:
         True if token is an API key, False otherwise
     """
     return token and isinstance(token, str) and token.startswith('gdelt_sk_')
-
-
-def create_oauth_provider() -> RemoteOAuthProvider:
-    """
-    Create OAuth provider for Supabase OAuth server.
-    
-    Returns:
-        RemoteOAuthProvider configured for GDELT Cloud
-    """
-    # Get Supabase project URL from environment
-    supabase_url = os.getenv('SUPABASE_URL', '')
-    
-    if not supabase_url:
-        raise ValueError('SUPABASE_URL environment variable is required for OAuth')
-    
-    # Create OAuth provider with Supabase endpoints
-    provider = RemoteOAuthProvider(
-        auth_url=f"{supabase_url}/auth/v1/authorize",
-        token_url=f"{supabase_url}/auth/v1/token",
-        discovery_url=f"{supabase_url}/.well-known/oauth-authorization-server/auth/v1",
-        scopes=['openid', 'email', 'profile']
-    )
-    
-    return provider
-
-
-def create_bearer_auth(token: Optional[str] = None) -> BearerAuth:
-    """
-    Create Bearer authentication for API keys.
-    
-    Args:
-        token: Optional API key token (will use env if not provided)
-    
-    Returns:
-        BearerAuth configured with the API key
-    """
-    auth_token = token or get_auth_token()
-    
-    if not auth_token:
-        raise ValueError('No authentication token provided')
-    
-    if not is_api_key(auth_token):
-        raise ValueError('Token is not a valid API key format')
-    
-    if not validate_api_key(auth_token):
-        raise ValueError('Invalid API key format')
-    
-    return BearerAuth(token=auth_token)
 
 
 class AuthContext:

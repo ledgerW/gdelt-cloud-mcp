@@ -3,7 +3,7 @@ GDELT Cloud MCP Server
 Provides access to GDELT event data via ClickHouse with dual authentication support.
 
 Authentication:
-- OAuth 2.1 with Dynamic Client Registration (for interactive users)
+- OAuth 2.1 with Dynamic Client Registration (for interactive users via Supabase)
 - API Keys (for developers and automated agents)
 
 Documentation: https://docs.gdeltcloud.com
@@ -13,33 +13,30 @@ import os
 from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 from fastmcp import FastMCP
-from pydantic import Field
+from fastmcp.server.auth import RemoteAuthProvider
+from fastmcp.server.auth.providers.jwt import JWTVerifier
+from pydantic import Field, AnyHttpUrl
 
 # Load environment variables
 load_dotenv()
 
 # Import utilities and resources
 from utils import GDELTCloudAPIClient, AuthContext, get_auth_token
+from utils.dual_token_verifier import DualTokenVerifier
 from cameo import (
+    COUNTRY_CODES,
+    ACTOR_TYPES,
+    KNOWN_GROUPS,
+    ETHNIC_CODES,
+    RELIGION_CODES,
+    EVENT_CODES,
     get_country_name,
-    search_countries,
-    get_quick_reference as get_country_reference,
     get_actor_type,
-    search_actor_types,
-    get_quick_reference as get_actor_type_reference,
     get_known_group,
-    search_known_groups,
-    get_quick_reference as get_known_group_reference,
     get_ethnic_code,
-    search_ethnic_codes,
-    get_quick_reference as get_ethnic_reference,
     get_religion_code,
-    search_religions,
-    get_quick_reference as get_religion_reference,
     get_event_code,
-    search_event_codes,
     get_codes_by_category,
-    get_quick_reference as get_event_code_reference,
 )
 from resources import (
     get_goldstein_score,
@@ -55,8 +52,59 @@ from resources import (
     COMMON_MISTAKES,
 )
 
-# Initialize FastMCP server
-mcp = FastMCP("GDELT Cloud")
+# Initialize authentication provider
+def create_auth_provider():
+    """
+    Create RemoteAuthProvider with Supabase OAuth configuration.
+    
+    Configuration:
+    - SUPABASE_URL: Your Supabase project URL (authorization server)
+    - MCP_SERVER_BASE_URL: Your MCP server's base URL (defaults to localhost for development)
+    - GDELT_CLOUD_API_URL: GDELT Cloud API endpoint (for backend API calls)
+    
+    The base_url parameter identifies THIS MCP server as the protected resource,
+    not the backend API. MCP clients use this for OAuth discovery metadata.
+    """
+    supabase_url = os.getenv('SUPABASE_URL')
+    
+    # MCP server's own base URL (where THIS server is accessible)
+    # For local development: http://localhost (FastMCP assigns port dynamically)
+    # For production: Your deployed MCP server URL
+    mcp_server_url = os.getenv('MCP_SERVER_BASE_URL', 'http://localhost')
+    
+    if not supabase_url:
+        # Fall back to no auth for development if Supabase URL not set
+        print("WARNING: SUPABASE_URL not set. Running without OAuth support.")
+        return None
+    
+    # Configure JWT token verification for Supabase OAuth tokens
+    # Supabase issues JWT tokens that can be verified using their public keys
+    jwt_verifier = JWTVerifier(
+        jwks_uri=f"{supabase_url}/auth/v1/jwks",  # Supabase public keys endpoint
+        issuer=f"{supabase_url}/auth/v1",          # Token issuer must match
+        audience="authenticated"                    # Supabase default audience
+    )
+    
+    # Wrap JWT verifier in DualTokenVerifier to support BOTH:
+    # 1. OAuth JWT tokens from Supabase (for interactive users like ChatGPT, Claude)
+    # 2. API keys (gdelt_sk_*) for automated agents and developers
+    dual_verifier = DualTokenVerifier(jwt_verifier)
+    
+    # Create RemoteAuthProvider with Supabase as authorization server
+    # This enables MCP clients to:
+    # 1. Discover OAuth configuration via /.well-known/oauth-protected-resource
+    # 2. Use Dynamic Client Registration (DCR) to register automatically
+    # 3. Authenticate users via Supabase OAuth OR provide API keys directly
+    # 4. Access this MCP server with valid tokens (OAuth JWT or API key)
+    return RemoteAuthProvider(
+        token_verifier=dual_verifier,
+        authorization_servers=[AnyHttpUrl(supabase_url)],  # Supabase as identity provider
+        base_url=mcp_server_url  # THIS MCP server's URL (for OAuth metadata)
+    )
+
+# Initialize FastMCP server with authentication
+auth_provider = create_auth_provider()
+mcp = FastMCP("GDELT Cloud", auth=auth_provider)
 
 # Global API client (will be initialized with auth context per request)
 _api_client: Optional[GDELTCloudAPIClient] = None
@@ -80,37 +128,45 @@ async def get_api_client(auth_token: Optional[str] = None) -> GDELTCloudAPIClien
 @mcp.resource("gdelt://cameo/countries")
 def get_country_codes_resource() -> str:
     """ISO 3166-1 alpha-3 country codes reference."""
-    return get_country_reference()
+    codes = [f"{code}: {name}" for code, name in COUNTRY_CODES.items()]
+    return "# ISO 3166-1 Alpha-3 Country Codes\n\n" + "\n".join(codes[:50]) + f"\n\n... and {len(codes) - 50} more"
 
 
 @mcp.resource("gdelt://cameo/actor-types")
 def get_actor_types_resource() -> str:
     """CAMEO actor type classification codes (GOV, MIL, COP, etc.)."""
-    return get_actor_type_reference()
+    codes = [f"{code}: {desc}" for code, desc in ACTOR_TYPES.items()]
+    return "# CAMEO Actor Type Codes\n\n" + "\n".join(codes)
 
 
 @mcp.resource("gdelt://cameo/known-groups")
 def get_known_groups_resource() -> str:
     """International organizations and known groups taxonomy."""
-    return get_known_group_reference()
+    codes = [f"{code}: {name}" for code, name in KNOWN_GROUPS.items()]
+    return "# CAMEO Known Groups\n\n" + "\n".join(codes)
 
 
 @mcp.resource("gdelt://cameo/ethnic-codes")
 def get_ethnic_codes_resource() -> str:
     """Ethnic group classification codes."""
-    return get_ethnic_reference()
+    codes = [f"{code}: {desc}" for code, desc in ETHNIC_CODES.items()]
+    return "# CAMEO Ethnic Codes\n\n" + "\n".join(codes)
 
 
 @mcp.resource("gdelt://cameo/religion-codes")
 def get_religion_codes_resource() -> str:
     """Religious affiliation classification codes."""
-    return get_religion_reference()
+    codes = [f"{code}: {desc}" for code, desc in RELIGION_CODES.items()]
+    return "# CAMEO Religion Codes\n\n" + "\n".join(codes)
 
 
 @mcp.resource("gdelt://cameo/event-codes")
 def get_event_codes_resource() -> str:
     """Complete CAMEO event code taxonomy (300+ codes)."""
-    return get_event_code_reference()
+    codes = []
+    for code, event in list(EVENT_CODES.items())[:50]:
+        codes.append(f"{code}: {event.description}")
+    return "# CAMEO Event Codes\n\n" + "\n".join(codes) + f"\n\n... and {len(EVENT_CODES) - 50} more"
 
 
 @mcp.resource("gdelt://reference/goldstein-scale")
