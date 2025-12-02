@@ -430,7 +430,7 @@ WORKFLOW:
 4. Query events table first (smaller), then GKG if needed"""
     
     agent = create_agent(
-        "openai:gpt-4-turbo",
+        "openai:gpt-5.1",
         tools,
         system_prompt=system_prompt
     )

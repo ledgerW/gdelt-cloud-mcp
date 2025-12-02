@@ -26,8 +26,6 @@ def get_auth_token() -> Optional[str]:
     Returns:
         Authentication token (OAuth or API key) or None
     """
-    print("\n=== GET_AUTH_TOKEN CALLED ===")
-    
     # First, try to get token from HTTP headers
     try:
         headers = get_http_headers()
